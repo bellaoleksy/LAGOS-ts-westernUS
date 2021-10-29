@@ -28,8 +28,6 @@ if (!require('renv')) install.packages('renv');library('renv')
 
 #Create a lockfile for packages
 # renv::init()
-
-
 ```
 
 
@@ -39,4 +37,109 @@ library(here) ##enable easy file referencing in project-oriented workflows.
 ## ^ ^ a little more on that
 
 source(here("scripts/00_libraries.R"))
+```
+
+#### Pull in EDI data (ie available)
+```{r pull in EDI data, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+source(here("scripts/01.1_pullLakeMetadataEDI.R"))
+```
+
+#### Pull in raw in situ data
+```{r pull in raw in situ data, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
+source(here("scripts/01.2_pullWaterChem.R"))
+```
+
+#Trim all dataframes to western US states
+```{r trim raw data, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
+
+#Trim to only "western" states (may want to eventually define this by ecoregion or some other metric that isn't arbitrary lines drawn on a map 150 years ago)
+lakeinformation <- lakeinformation %>%
+  filter(lake_centroidstate %in% c("CA", "UT", "NV",
+                                   "WA", "OR", "ID",
+                                   "MT", "WY", "CO",
+                                   "NM", "AZ")) %>%
+  mutate(lagoslakeid=factor(lagoslakeid))
+
+westernlakeIDS<-lakeinformation %>%
+  dplyr::select(lagoslakeid, lake_lat_decdeg) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=lake_lat_decdeg) %>%
+  names()
+
+#Filter lakewatersheds to only include western US lakes
+lakewatersheds <- lakewatersheds %>%
+  mutate(lagoslakeid=factor(lagoslakeid)) %>%
+  filter(lagoslakeid %in% westernlakeIDS)
+
+#Filter lakecharacteristics to only include western US lakes
+lakecharacteristics <- lakecharacteristics %>%
+  mutate(lagoslakeid=factor(lagoslakeid))%>%
+  filter(lagoslakeid %in% westernlakeIDS)
+
+#Filter lakeids to only include western US lakes
+lakeids <- lakeids %>%
+  mutate(lagoslakeid=factor(lagoslakeid))%>%
+  filter(lagoslakeid %in% westernlakeIDS)
+
+#Filter lakeconn to only include western US lakes
+lakeconn <- lakeconn %>%
+  mutate(lagoslakeid=factor(lagoslakeid))%>%
+  filter(lagoslakeid %in% westernlakeIDS)
+
+#Filter nutrientsalgae to only include western US lakes
+#and select only relevant columns
+nutrientsalgae <- nutrientsalgae %>%
+  mutate(lagoslakeid=factor(lagoslakeid))%>%
+  filter(lagoslakeid %in% westernlakeIDS) %>%
+  dplyr::select(lagoslakeid, event_date, year,
+                chla_ugl, no2no3n_ugl, nh4n_ugl,
+                tn_ugl, tkn_ugl, tp_ugl, srpp_ugl)
+
+#Filter chemicalphysical to only include western US lakes
+#and select only relevant columns
+chemicalphysical <- chemicalphysical %>%
+  mutate(lagoslakeid=factor(lagoslakeid)) %>%
+  filter(lagoslakeid %in% westernlakeIDS) %>%
+  dplyr::select(lagoslakeid, event_date, year,
+                temp_degc, do_mgl, ph_eq)
+
+#Filter claritycarbon to only include western US lakes
+#and select only relevant columns
+claritycarbon <- claritycarbon %>%
+  mutate(lagoslakeid=factor(lagoslakeid)) %>%
+  filter(lagoslakeid %in% westernlakeIDS) %>%
+  dplyr::select(lagoslakeid, year, event_date,
+                doc_mgl, turb_ntu, 
+                secchi_m, tss)
+```
+
+### Create master dataframe
+```{r join master in situ, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
+
+#Switching to data.table here because it's a lot faster for processing 
+
+#Make one big dataframe, and join by all of the common columns ("colnames")
+colnames<-(intersect( colnames(nutrientsalgae),  colnames(chemicalphysical)))
+insitu_master<- merge(chemicalphysical, nutrientsalgae,all=TRUE,by=colnames) 
+
+colnames<-(intersect( colnames(insitu_master),  colnames(claritycarbon)))
+insitu_master<- merge(insitu_master,claritycarbon, all=TRUE,by=colnames) 
+
+#Then add all the relevant metadata
+colnames<-(intersect( colnames(insitu_master),  colnames(lakeinformation)))
+insitu_master<- merge(insitu_master,lakeinformation, all.x=FALSE,by=colnames) 
+
+colnames<-(intersect( colnames(insitu_master),  colnames(lakecharacteristics)))
+insitu_master<- merge(insitu_master,lakecharacteristics, all.x=FALSE,by=colnames) 
+
+colnames<-(intersect( colnames(insitu_master),  colnames(lakeconn)))
+insitu_master<- merge(insitu_master,lakeconn, all.x=TRUE,by=colnames) 
+
+#We drop a few sites here, but I believe it is only lakes that are on the border with Canada. We might want to check this eventually... -IAO
+colnames<-(intersect( colnames(insitu_master),  colnames(lakewatersheds)))
+insitu_master<- merge(insitu_master,lakewatersheds, all.x=FALSE,by=colnames) 
+
+colnames<-(intersect( colnames(insitu_master),  colnames(reservoir)))
+insitu_master<- merge(insitu_master,reservoir, all.x=TRUE,by=colnames) 
+
+
 ```

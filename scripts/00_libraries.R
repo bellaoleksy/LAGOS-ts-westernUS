@@ -1,6 +1,5 @@
 ##Load all the libraries your heart desires
 
-library(here)
 
 # install.packages(c("cowplot", "googleway", "ggplot2", "ggrepel", 
 # "ggspatial", "libwgeom", "sf", "rnaturalearth", "rnaturalearthdata"))
