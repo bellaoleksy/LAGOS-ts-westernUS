@@ -36,7 +36,21 @@ lakecharacteristics <- lakecharacteristics %>%
   mutate(lagoslakeid=factor(lagoslakeid))
 
 
-##SUMMARIZE IN SITU DATA
+
+# reservoir ---------------------------------------------------------------
+
+reservoir<-read.csv(here("data/LAGOSUS_RSVR_v1.1.csv")) %>%
+  dplyr::select(lagoslakeid, lake_rsvr_class, lake_rsvr_probnl, lake_rsvr_probrsvr,
+                lake_rsvr_model,lake_rsvr_probdiff,lake_rsvr_classmethod,
+                lake_rsvr_rsvrisolated_flag,lake_rsvr_nlneardam_flag) %>%
+  mutate(lagoslakeid=factor(lagoslakeid))
+
+
+
+
+# SUMMARIZE IN SITU DATA --------------------------------------------------
+
+
 
 # names(chemicalphysical)
 chemicalphysical_annual <- chemicalphysical %>%
@@ -81,15 +95,9 @@ lakecharacteristics<-merge(lakeinformation,lakecharacteristics,  no.dups=TRUE, b
 #Make one big dataframe, and join by all of the common columns ("colnames")
 colnames<-(intersect( colnames(chemicalphysical),  colnames(claritycarbon)))
 dt_limno<- merge(chemicalphysical,claritycarbon, all=TRUE,by=colnames) 
-colnames<-(intersect( colnames(dt_limno),  colnames(contaminants)))
-dt_limno<- merge(dt_limno,contaminants, all=TRUE,by=colnames) 
 colnames<-(intersect( colnames(dt_limno),  colnames(nutrientsalgae)))
 dt_limno<- merge(dt_limno,nutrientsalgae, all=TRUE,by=colnames) 
-colnames<-(intersect( colnames(dt_limno),  colnames(depth)))
-dt_limno<- merge(dt_limno,depth,by=colnames) 
-
 colnames<-(intersect( colnames(dt_limno),  colnames(lakewatersheds)))
 dt_limno<- merge(dt_limno,lakewatersheds,all=TRUE,by=colnames) 
-
 colnames<-(intersect( colnames(dt_limno), colnames(lakecharacteristics)))
 dt_limno<- merge(dt_limno,lakecharacteristics,all=TRUE,by=colnames) 

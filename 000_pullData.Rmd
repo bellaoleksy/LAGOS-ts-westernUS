@@ -12,7 +12,9 @@ output:
 knitr::opts_chunk$set(warning = FALSE)
 knitr::opts_chunk$set(echo = FALSE)
 knitr::opts_knit$set(root.dir='..')
-knitr::opts_chunk$set(out.width = '100%',fig.height=5,
+knitr::opts_chunk$set(out.width = '100%',
+                      fig.width= 6,
+                      fig.height=9,
                       echo=FALSE, 
                warning=FALSE, message=FALSE) 
 
@@ -36,17 +38,17 @@ library(here) ##enable easy file referencing in project-oriented workflows.
 ##https://rstats.wtf/project-oriented-workflow.html
 ## ^ ^ a little more on that
 
-source(here("scripts/00_libraries.R"))
+source(here("LAGOS-ts-westernUS/scripts/00_libraries.R"))
 ```
 
 #### Pull in EDI data (ie available)
 ```{r pull in EDI data, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
-source(here("scripts/01.1_pullLakeMetadataEDI.R"))
+source(here("LAGOS-ts-westernUS/scripts/01.1_pullLakeMetadataEDI.R"))
 ```
 
 #### Pull in raw in situ data
 ```{r pull in raw in situ data, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
-source(here("scripts/01.2_pullWaterChem.R"))
+source(here("LAGOS-ts-westernUS/scripts/01.2_pullWaterChem.R"))
 ```
 
 #Trim all dataframes to western US states
@@ -124,6 +126,15 @@ insitu_master<- merge(chemicalphysical, nutrientsalgae,all=TRUE,by=colnames)
 colnames<-(intersect( colnames(insitu_master),  colnames(claritycarbon)))
 insitu_master<- merge(insitu_master,claritycarbon, all=TRUE,by=colnames) 
 
+#Convert to long format
+insitu_master <- insitu_master %>%
+  # pivot_longer(-(1:3), names_to = "analyte", values_to = "value") %>%
+  mutate(doy=yday(event_date))%>%
+  filter(doy >= 172 & doy <= 264)
+
+#Create doy column and constrain to only include lakes sampled June21-Sept21 (northern hemisphere "summer")
+
+
 #Then add all the relevant metadata
 colnames<-(intersect( colnames(insitu_master),  colnames(lakeinformation)))
 insitu_master<- merge(insitu_master,lakeinformation, all.x=FALSE,by=colnames) 
@@ -141,5 +152,103 @@ insitu_master<- merge(insitu_master,lakewatersheds, all.x=FALSE,by=colnames)
 colnames<-(intersect( colnames(insitu_master),  colnames(reservoir)))
 insitu_master<- merge(insitu_master,reservoir, all.x=TRUE,by=colnames) 
 
+```
+
+
+# Initial data vis
+## NO3
+```{r, tidy=TRUE}
+#Package of general data vis that's helpful in the exploratory phase of a project
+install.packages("visdat")
+library(visdat)
+
+#What are we left with if we only include lakes with at least 3 samples a summer?
+insitu_master_summary <- insitu_master %>%
+  group_by(lagoslakeid, year) %>%
+  summarise_at(c("no2no3n_ugl","tp_ugl","secchi_m"), list(median = function(x) median(x,na.rm=T),
+                                               max = function(x) max(x,na.rm=T),
+                                               n=length)) 
+
+
+dt_limno_yearcount<-insitu_master%>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year)))
+
+# Investigate NO3
+#Get a dataframe that summarizes the number of years each lake was sampled for NO3, extract names
+NO3_LT_names<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, no2no3n_ugl_median, year)%>%
+  drop_na(no2no3n_ugl_median) %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year))) %>%
+  arrange(desc(n_years_sampled)) %>%
+  filter(n_years_sampled>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=n_years_sampled) %>%
+  names()
+
+NO3_LT<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, no2no3n_ugl_median, year)%>%
+  # drop_na(no2no3n_ugl_median) %>% # Keep NAs so we know where the gaps are
+  filter(lagoslakeid %in% NO3_LT_names) %>%
+  arrange(lagoslakeid,year) 
+
+#Package for visualizing missing data
+install.packages("naniar")
+library(naniar)
+NO3_missingness_10year<-NO3_LT %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_complete_obs=n_complete(no2no3n_ugl_median),
+            n_years=length(unique(year)),
+            pct_complete=(n_complete_obs/n_years)*100,
+            last_non_missing_year = tail(year, 1), #extract last non-missing year
+            first_non_missing_year = head(year,1), #extra first non-missing year
+              .groups = "drop") %>%
+  mutate(last_non_missing_year=as.numeric(as.character(last_non_missing_year)),
+         first_non_missing_year=as.numeric(as.character(first_non_missing_year)),
+         last_first_diff=last_non_missing_year-first_non_missing_year)
+# first_non_missing_year = year[which(!is.na(year))[1]])
+# ^^ An alternate way to do this, but couldn't figure out how to get last value
+
+
+head(NO3_missingness_10year)
+
+
+#How many lakes have 10 years of NO3 data without any missing values?
+NO3_missingness_10year %>%
+  filter(pct_complete==100) %>%
+  ungroup()%>%
+  summarize(n_lakes=length(unique(lagoslakeid)))
+#18 lakes ... but this doesn't paint the whole picture, as you'll see below
+
+#Visualize how much missing data there is
+NO3_LT_wide <- NO3_LT %>%
+  pivot_wider(names_from=lagoslakeid, values_from = no2no3n_ugl_median) %>%
+  column_to_rownames("year")
+#Option 1 
+visdat::vis_miss(NO3_LT_wide)
+#Option 2
+NO3_LT %>%
+  ggplot(aes(x=year,y=lagoslakeid))+
+  geom_miss_point()+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1))
+##Basically, there are a lot of missing years, even for lakes with many years of data.
+
+## What we want to know is how many lakes are there with the most complete, consecutive observations?
+## We can be fairly leniant. Let's say we can accomodate 1 missing year in a 10 year timeseries.
+
+
+#Pull out the names of lakes where 100% of the annual timeseries is complete
+NO3_complete_10year_names <- NO3_missingness_10year %>%
+  filter(pct_complete==100) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=pct_complete) %>%
+  names()
+#Visualize how much missing data there is 
+vis_miss( NO3_LT %>%
+            filter(lagoslakeid %in% NO3_complete_10year_names)%>%
+  pivot_wider(names_from=lagoslakeid, values_from = no2no3n_ugl_median) %>%
+  column_to_rownames("year"))
+
+
 
 ```
+
