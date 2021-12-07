@@ -15,7 +15,10 @@ if (!require('ggstatsplot')) install.packages('ggstatsplot'); library('ggstatspl
 if (!require('ggthemes')) install.packages('ggthemes'); library('ggthemes')
 theme_set(ggthemes::theme_base())
 if (!require('GGally')) install.packages('GGally'); library('GGally')
-
+#Packages for general data vis that's helpful in the exploratory phase of a project
+if (!require('visdat')) install.packages('visdat'); library('visdat')
+if (!require('naniar')) install.packages('naniar'); library('naniar') #visualizing missing data and more
+if (!require('ggtext')) install.packages('ggtext'); library('ggtext') #for gg_richtext
 
 #For summaries
 if (!require('huxtable')) install.packages('huxtable'); library('huxtable')

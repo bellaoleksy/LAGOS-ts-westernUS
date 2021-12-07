@@ -849,12 +849,6 @@ lakeconn_western<-merge(lakeinformation,lakeconn, all.x=TRUE, no.dups=TRUE, by="
   mutate(connectivity_type = case_when(net_id >= 1 ~ 'yes network',
                                        TRUE ~ 'no network')) 
 
-colnames<-(intersect( colnames(lakeconn_western),  colnames(dt_limno))) #Find common column names
-lakeconn_western<-left_join(lakeconn_western,dt_limno, by=colnames)
-sum(is.na(dt_limno$year))
-sum(is.na(lakeconn_western$year))
-
-
 
 # pull 'dt2' dataframe from EDI -------------------------------------------
 
