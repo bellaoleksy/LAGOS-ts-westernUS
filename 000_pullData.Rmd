@@ -37,23 +37,26 @@ if (!require('renv')) install.packages('renv');library('renv')
 library(here) ##enable easy file referencing in project-oriented workflows.
 ##https://rstats.wtf/project-oriented-workflow.html
 ## ^ ^ a little more on that
-
+# source(here("scripts/00_libraries.R"))
 source(here("LAGOS-ts-westernUS/scripts/00_libraries.R"))
 ```
 
-#### Pull in EDI data (ie available)
+
 ```{r pull in EDI data, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+#### Pull in EDI data (ie available) ############################################
+# source(here("scripts/01.1_pullLakeMetadataEDI.R"))
 source(here("LAGOS-ts-westernUS/scripts/01.1_pullLakeMetadataEDI.R"))
 ```
 
-#### Pull in raw in situ data
+
 ```{r pull in raw in situ data, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
-source(here("LAGOS-ts-westernUS/scripts/01.2_pullWaterChem.R"))
+#### Pull in raw in situ data ############################################
+# source(here("LAGOS-ts-westernUS/scripts/01.2_pullWaterChem.R"))
+source("~/Dropbox/dropbox Research/LAGOS-ts-westernUS/scripts/01.2_pullWaterChem.R")
 ```
 
-#Trim all dataframes to western US states
 ```{r trim raw data, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
-
+#Trim all dataframes to western US states ############################################
 #Trim to only "western" states (may want to eventually define this by ecoregion or some other metric that isn't arbitrary lines drawn on a map 150 years ago)
 lakeinformation <- lakeinformation %>%
   filter(lake_centroidstate %in% c("CA", "UT", "NV",
@@ -114,9 +117,9 @@ claritycarbon <- claritycarbon %>%
                 secchi_m, tss)
 ```
 
-### Create master dataframe
-```{r join master in situ, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
 
+```{r join master in situ, echo=FALSE, message=FALSE, waring=FALSE, include=FALSE}
+# Create master dataframe ############################################
 #Switching to data.table here because it's a lot faster for processing 
 
 #Make one big dataframe, and join by all of the common columns ("colnames")
@@ -152,15 +155,27 @@ insitu_master<- merge(insitu_master,lakewatersheds, all.x=FALSE,by=colnames)
 colnames<-(intersect( colnames(insitu_master),  colnames(reservoir)))
 insitu_master<- merge(insitu_master,reservoir, all.x=TRUE,by=colnames) 
 
+
+#Clean up workspace
+rm(chemicalphysical,
+   claritycarbon,
+   lakecharacteristics,
+   lakeconn,
+   lakeconn_western,
+   lakeids,
+   lakeinformation,
+   lakewatersheds,
+   nutrientsalgae,
+   reservoir)
 ```
 
 
 # Initial data vis
-## NO3
-```{r, tidy=TRUE}
-#Package of general data vis that's helpful in the exploratory phase of a project
-install.packages("visdat")
-library(visdat)
+
+Before we dive into the analysis, we need to get a better sense of not just how many sites are there with > 10 years of data, but also the complete-ness of each time series. Ultimately this will determine what kind of timeseries models we use.  
+
+### NO3
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=6}
 
 #What are we left with if we only include lakes with at least 3 samples a summer?
 insitu_master_summary <- insitu_master %>%
@@ -188,13 +203,9 @@ NO3_LT_names<-insitu_master_summary%>%
 
 NO3_LT<-insitu_master_summary%>%
   dplyr::select(lagoslakeid, no2no3n_ugl_median, year)%>%
-  # drop_na(no2no3n_ugl_median) %>% # Keep NAs so we know where the gaps are
-  filter(lagoslakeid %in% NO3_LT_names) %>%
-  arrange(lagoslakeid,year) 
+  filter(lagoslakeid %in% NO3_LT_names) 
 
-#Package for visualizing missing data
-install.packages("naniar")
-library(naniar)
+#Summarize some information about how much complete data we have, start and end of the TS, etc.. 
 NO3_missingness_10year<-NO3_LT %>%
   group_by(lagoslakeid) %>%
   summarize(n_complete_obs=n_complete(no2no3n_ugl_median),
@@ -209,46 +220,494 @@ NO3_missingness_10year<-NO3_LT %>%
 # first_non_missing_year = year[which(!is.na(year))[1]])
 # ^^ An alternate way to do this, but couldn't figure out how to get last value
 
+```
 
-head(NO3_missingness_10year)
+Currently in the database there are a total of `r length(unique(NO3_LT$lagoslakeid))` lakes with over 10 years of NO3 data. That seems great, but we need to take a closer look at how much missing data there is within each timeseries. Ultimately that will dictate our approach moving forward. 
 
+#### Visualize all site-years & missing data
+
+The next two plots are show a couple different ways that we can visualize the amount of missing data in the database. In the first one the y-axis is showing "year" based on row position, with more recent years at the top of the plot (zero) and older years near the bottom (50).
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=6}
 
 #How many lakes have 10 years of NO3 data without any missing values?
-NO3_missingness_10year %>%
-  filter(pct_complete==100) %>%
-  ungroup()%>%
-  summarize(n_lakes=length(unique(lagoslakeid)))
+# NO3_missingness_10year %>%
+#   filter(pct_complete==100) %>%
+#   ungroup()%>%
+#   summarize(n_lakes=length(unique(lagoslakeid))) %>%
+#   pull()
 #18 lakes ... but this doesn't paint the whole picture, as you'll see below
 
 #Visualize how much missing data there is
 NO3_LT_wide <- NO3_LT %>%
   pivot_wider(names_from=lagoslakeid, values_from = no2no3n_ugl_median) %>%
+  mutate(year=as.numeric(as.character(year))) %>%
+  arrange(desc(year)) %>%
   column_to_rownames("year")
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
 #Option 1 
-visdat::vis_miss(NO3_LT_wide)
+visdat::vis_miss(NO3_LT_wide) +
+  labs(title="NO3 data - all sites with > 10 years of data",
+       y="Year")+
+  ggpubr::theme_pubr(base_size=6)+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"),
+        axis.text.x=element_text(angle = 45, hjust = 0, size=8))
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
 #Option 2
 NO3_LT %>%
-  ggplot(aes(x=year,y=lagoslakeid))+
-  geom_miss_point()+
-  theme(axis.text.x=element_text(angle = 45, hjust = 1))
-##Basically, there are a lot of missing years, even for lakes with many years of data.
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#cbc0d3", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=8),
+        legend.position = "none")+
+  labs(title="NO3 data - all sites with > 10 years of data")
+```
 
-## What we want to know is how many lakes are there with the most complete, consecutive observations?
-## We can be fairly leniant. Let's say we can accomodate 1 missing year in a 10 year timeseries.
+Basically, there are a lot of missing years, even for lakes with many years of data. Not the end of the world. What we want to know is how many lakes are there with the most complete, consecutive observations? I wrote a function for finding the longest complete stretch of annual observatiosn for each lake.
 
+```{r, tidy=TRUE, echo=TRUE}
+longestCompleteStretch <- function(x) {
+  with(rle(!is.na(x)), max(lengths[values]))  
+}
+
+#Calculate the longest stretch of complete observations for each lake
+NO3_complete<-NO3_LT_wide %>%
+  summarise_at(vars(1:ncol(.)), longestCompleteStretch) %>%
+  pivot_longer(1:ncol(.)) %>%
+  rename(longestCompleteStretch=value,
+         lagoslakeid=name) %>%
+  filter(longestCompleteStretch>=9)
 
 #Pull out the names of lakes where 100% of the annual timeseries is complete
-NO3_complete_10year_names <- NO3_missingness_10year %>%
-  filter(pct_complete==100) %>%
-  pivot_wider(names_from=lagoslakeid, values_from=pct_complete) %>%
+NO3_complete_10year_names <- NO3_complete %>%
+  filter(longestCompleteStretch>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=longestCompleteStretch) %>%
   names()
-#Visualize how much missing data there is 
+```
+
+#### Visualize all longest complete stretches of data
+
+Now we are left with `r length(NO3_complete_10year_names)` lakes. They still vary in the timeperiod of observation, with a few of these sites starting observations in the 1970s, but possibly phasing out monitoring in more recent years. Alternatively, the database hasn't been updated yet. 
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+#Visualize how much missing data there is Option 1
 vis_miss( NO3_LT %>%
             filter(lagoslakeid %in% NO3_complete_10year_names)%>%
   pivot_wider(names_from=lagoslakeid, values_from = no2no3n_ugl_median) %>%
-  column_to_rownames("year"))
+  column_to_rownames("year"))+
+  labs(title="NO3 data - longest complete stretches")+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"))
+```
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
+#Visualize how much missing data there is Option 2
+NO3_LT %>%
+  filter(lagoslakeid %in% NO3_complete_10year_names) %>%
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#cbc0d3", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=8),
+        legend.position = "none")+
+  labs(title="NO3 data - longest complete stretches")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=8}
+NO3_complete1<-insitu_master %>%
+  filter(lagoslakeid %in% NO3_complete_10year_names) %>%
+  distinct(lagoslakeid, lake_namelagos, lake_lat_decdeg, lake_lon_decdeg) %>%
+    left_join(., NO3_missingness_10year %>%
+              dplyr::select(lagoslakeid, n_years, first_non_missing_year, last_non_missing_year), by="lagoslakeid") %>%
+  rename(`Lake name`=lake_namelagos,
+         `Lat`=lake_lat_decdeg,
+         `Long`=lake_lon_decdeg,
+         `Years of data (n)`=n_years,
+         `First year`=first_non_missing_year,
+         `Last year`=last_non_missing_year)
+knitr::kable(NO3_complete1, "simple", caption="Lakes with with >= 10 years of NO3 data, and no year gaps for a minimum of 10 years")
+```
+
+### TP
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=6}
+
+#What are we left with if we only include lakes with at least 3 samples a summer?
+insitu_master_summary <- insitu_master %>%
+  group_by(lagoslakeid, year) %>%
+  summarise_at(c("no2no3n_ugl","tp_ugl","secchi_m"), list(median = function(x) median(x,na.rm=T),
+                                               max = function(x) max(x,na.rm=T),
+                                               n=length)) 
 
 
+dt_limno_yearcount<-insitu_master%>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year)))
+
+# Investigate TP
+#Get a dataframe that summarizes the number of years each lake was sampled for TP, extract names
+TP_LT_names<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, tp_ugl_median, year)%>%
+  drop_na(tp_ugl_median) %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year))) %>%
+  arrange(desc(n_years_sampled)) %>%
+  filter(n_years_sampled>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=n_years_sampled) %>%
+  names()
+
+TP_LT<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, tp_ugl_median, year)%>%
+  filter(lagoslakeid %in% TP_LT_names) 
+
+#Summarize some information about how much complete data we have, start and end of the TS, etc.. 
+TP_missingness_10year<-TP_LT %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_complete_obs=n_complete(tp_ugl_median),
+            n_years=length(unique(year)),
+            pct_complete=(n_complete_obs/n_years)*100,
+            last_non_missing_year = tail(year, 1), #extract last non-missing year
+            first_non_missing_year = head(year,1), #extra first non-missing year
+              .groups = "drop") %>%
+  mutate(last_non_missing_year=as.numeric(as.character(last_non_missing_year)),
+         first_non_missing_year=as.numeric(as.character(first_non_missing_year)),
+         last_first_diff=last_non_missing_year-first_non_missing_year)
+# first_non_missing_year = year[which(!is.na(year))[1]])
+# ^^ An alternate way to do this, but couldn't figure out how to get last value
 
 ```
 
+Currently in the database there are a total of `r length(unique(TP_LT$lagoslakeid))` lakes with over 10 years of TP data. That seems great, but we need to take a closer look at how much missing data there is within each timeseries. Ultimately that will dictate our approach moving forward. 
+
+#### Visualize all site-years & missing data
+
+The next two plots are show a couple different ways that we can visualize the amount of missing data in the database. In the first one the y-axis is showing "year" based on row position, with more recent years at the top of the plot (zero) and older years near the bottom (50).
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
+#How many lakes have 10 years of TP data without any missing values?
+# TP_missingness_10year %>%
+#   filter(pct_complete==100) %>%
+#   ungroup()%>%
+#   summarize(n_lakes=length(unique(lagoslakeid))) %>%
+#   pull()
+#18 lakes ... but this doesn't paint the whole picture, as you'll see below
+
+#Visualize how much missing data there is
+TP_LT_wide <- TP_LT %>%
+  pivot_wider(names_from=lagoslakeid, values_from = tp_ugl_median) %>%
+  mutate(year=as.numeric(as.character(year))) %>%
+  arrange(desc(year)) %>%
+  column_to_rownames("year")
+#Option 1 
+visdat::vis_miss(TP_LT_wide) + labs(y="Year",
+                                    title="Total P data - all sites with > 10 years of data")+
+  ggpubr::theme_pubr(base_size=6)+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"),
+        axis.text.x=element_text(angle = 45, hjust = 0, size=8))
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
+#Option 2
+TP_LT %>%
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#fff3b0", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=8),
+        legend.position = "none")+
+  labs(title="Total P data - all sites with > 10 years of data")
+```
+
+Basically, there are a lot of missing years, even for lakes with many years of data. Not the end of the world. What we want to know is how many lakes are there with the most complete, consecutive observations?
+
+```{r, tidy=TRUE, echo=TRUE}
+#Calculate the longest stretch of complete observations for each lake
+TP_complete<-TP_LT_wide %>%
+  summarise_at(vars(1:ncol(.)), longestCompleteStretch) %>%
+  pivot_longer(1:ncol(.)) %>%
+  rename(longestCompleteStretch=value,
+         lagoslakeid=name) %>%
+  filter(longestCompleteStretch>=9)
+
+#Pull out the names of lakes where 100% of the annual timeseries is complete
+TP_complete_10year_names <- TP_complete %>%
+  filter(longestCompleteStretch>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=longestCompleteStretch) %>%
+  names()
+```
+
+#### Visualize all longest complete stretches of data
+
+Now we are left with `r length(TP_complete_10year_names)` lakes. They still vary in the timeperiod of observation, with a few of these sites starting observations in the 1970s, but possibly phasing out monitoring in more recent years. Alternatively, the database hasn't been updated yet. 
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+#Visualize how much missing data there is Option 1
+vis_miss( TP_LT %>%
+            filter(lagoslakeid %in% TP_complete_10year_names)%>%
+  pivot_wider(names_from=lagoslakeid, values_from = tp_ugl_median) %>%
+  column_to_rownames("year"))+
+  labs(title="Total P data -  longest complete stretch")+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"))
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+#Visualize how much missing data there is Option 2
+TP_LT %>%
+  filter(lagoslakeid %in% TP_complete_10year_names) %>%
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#fff3b0", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=8),
+        legend.position = "none")+
+  labs(title="Total P data -  longest complete stretch")
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=8}
+TP_complete1<-insitu_master %>%
+  filter(lagoslakeid %in% TP_complete_10year_names) %>%
+  distinct(lagoslakeid, lake_namelagos, lake_lat_decdeg, lake_lon_decdeg) %>%
+    left_join(., TP_missingness_10year %>%
+              dplyr::select(lagoslakeid, n_years, first_non_missing_year, last_non_missing_year), by="lagoslakeid") %>%
+  rename(`Lake name`=lake_namelagos,
+         `Lat`=lake_lat_decdeg,
+         `Long`=lake_lon_decdeg,
+         `Years of data (n)`=n_years,
+         `First year`=first_non_missing_year,
+         `Last year`=last_non_missing_year)
+knitr::kable(TP_complete1, "simple", caption="Lakes with with >= 10 years of TP data, and no year gaps for a minimum of 10 years")
+```
+
+
+### Secchi depth
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=6}
+
+#What are we left with if we only include lakes with at least 3 samples a summer?
+insitu_master_summary <- insitu_master %>%
+  group_by(lagoslakeid, year) %>%
+  summarise_at(c("no2no3n_ugl","tp_ugl","secchi_m"), list(median = function(x) median(x,na.rm=T),
+                                               max = function(x) max(x,na.rm=T),
+                                               n=length)) 
+
+
+dt_limno_yearcount<-insitu_master%>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year)))
+
+# Investigate SECCHI
+#Get a dataframe that summarizes the number of years each lake was sampled for SECCHI, extract names
+SECCHI_LT_names<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, secchi_m_median, year)%>%
+  drop_na(secchi_m_median) %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_years_sampled=length(unique(year))) %>%
+  arrange(desc(n_years_sampled)) %>%
+  filter(n_years_sampled>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=n_years_sampled) %>%
+  names()
+
+SECCHI_LT<-insitu_master_summary%>%
+  dplyr::select(lagoslakeid, secchi_m_median, year)%>%
+  filter(lagoslakeid %in% SECCHI_LT_names) 
+
+#Summarize some information about how much complete data we have, start and end of the TS, etc.. 
+SECCHI_missingness_10year<-SECCHI_LT %>%
+  group_by(lagoslakeid) %>%
+  summarize(n_complete_obs=n_complete(secchi_m_median),
+            n_years=length(unique(year)),
+            pct_complete=(n_complete_obs/n_years)*100,
+            last_non_missing_year = tail(year, 1), #extract last non-missing year
+            first_non_missing_year = head(year,1), #extra first non-missing year
+              .groups = "drop") %>%
+  mutate(last_non_missing_year=as.numeric(as.character(last_non_missing_year)),
+         first_non_missing_year=as.numeric(as.character(first_non_missing_year)),
+         last_first_diff=last_non_missing_year-first_non_missing_year)
+# first_non_missing_year = year[which(!is.na(year))[1]])
+# ^^ An alternate way to do this, but couldn't figure out how to get last value
+
+```
+
+Currently in the database there are a total of `r length(unique(SECCHI_LT$lagoslakeid))` lakes with over 10 years of secchi depth data. That seems great, but we need to take a closer look at how much missing data there is within each timeseries. Ultimately that will dictate our approach moving forward. 
+
+#### Visualize all site-years & missing data
+
+The next two plots are show a couple different ways that we can visualize the amount of missing data in the database. In the first one the y-axis is showing "year" based on row position, with more recent years at the top of the plot (zero) and older years near the bottom (50).
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
+#How many lakes have 10 years of SECCHI data without any missing values?
+# SECCHI_missingness_10year %>%
+#   filter(pct_complete==100) %>%
+#   ungroup()%>%
+#   summarize(n_lakes=length(unique(lagoslakeid))) %>%
+#   pull()
+#18 lakes ... but this doesn't paint the whole picture, as you'll see below
+
+#Visualize how much missing data there is
+SECCHI_LT_wide <- SECCHI_LT %>%
+  pivot_wider(names_from=lagoslakeid, values_from = secchi_m_median) %>%
+  mutate(year=as.numeric(as.character(year))) %>%
+  arrange(desc(year)) %>%
+  column_to_rownames("year")
+#Option 1 
+visdat::vis_miss(SECCHI_LT_wide) +
+  labs(title="Secchi depth data  - all sites with > 10 years of data",
+       y="Year")+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"),
+        axis.text.x = element_text(size=5.5))
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+
+#Option 2
+SECCHI_LT %>%
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#cbc0d3", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=5.5),
+        legend.position = "none")+
+  labs(title="Secchi depth data  - all sites with > 10 years of data")
+```
+
+Basically, there are a lot of missing years, but some strange patterns that don't appear in the TP and NO3 datasets. Many sites appear to have observations in alternating years. 
+
+```{r, tidy=TRUE}
+#Calculate the longest stretch of complete observations for each lake
+SECCHI_complete<-SECCHI_LT_wide %>%
+  summarise_at(vars(1:ncol(.)), longestCompleteStretch) %>%
+  pivot_longer(1:ncol(.)) %>%
+  rename(longestCompleteStretch=value,
+         lagoslakeid=name) %>%
+  filter(longestCompleteStretch>=9)
+
+#Pull out the names of lakes where 100% of the annual timeseries is complete
+SECCHI_complete_10year_names <- SECCHI_complete %>%
+  filter(longestCompleteStretch>=10) %>%
+  pivot_wider(names_from=lagoslakeid, values_from=longestCompleteStretch) %>%
+  names()
+```
+
+#### Visualize all longest complete stretches of data
+
+Now we are left with `r length(SECCHI_complete_10year_names)` lakes. 
+
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+#Visualize how much missing data there is Option 1
+vis_miss( SECCHI_LT %>%
+            filter(lagoslakeid %in% SECCHI_complete_10year_names)%>%
+  pivot_wider(names_from=lagoslakeid, values_from = secchi_m_median) %>%
+  column_to_rownames("year"))+
+  labs(title="Secchi depth data - longest complete stretches ")+
+  theme(plot.margin = margin(0.5, 2, 0.5, 0.5, "cm"))
+```
+```{r, tidy=TRUE, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=4}
+#Visualize how much missing data there is Option 2
+SECCHI_LT %>%
+  filter(lagoslakeid %in% SECCHI_complete_10year_names) %>%
+  mutate(year=as.numeric(as.character(year)))%>%
+  ggplot(aes(y=year,x=lagoslakeid))+
+  geom_line(color="grey50")+
+  ggpubr::theme_pubr()+
+  geom_miss_point(shape=21, color="black",fill="#cbc0d3", size=2.5)+
+  theme(axis.text.x=element_text(angle = 45, hjust = 1, size=8),
+        legend.position = "none")+
+  labs(title="Secchi depth data - longest complete stretches ")
+```
+
+We are left with a much higher sample size but interestingly, for a bunch of these lakes the monitoring stopped in 2000. What gives?
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=8}
+SECCHI_complete1<-insitu_master %>%
+  filter(lagoslakeid %in% SECCHI_complete_10year_names) %>%
+  distinct(lagoslakeid, lake_namelagos, lake_lat_decdeg, lake_lon_decdeg) %>%
+    left_join(., SECCHI_missingness_10year %>%
+              dplyr::select(lagoslakeid, n_years, first_non_missing_year, last_non_missing_year), by="lagoslakeid") %>%
+  rename(`Lake name`=lake_namelagos,
+         `Lat`=lake_lat_decdeg,
+         `Long`=lake_lon_decdeg,
+         `Years of data (n)`=n_years,
+         `First year`=first_non_missing_year,
+         `Last year`=last_non_missing_year)
+knitr::kable(SECCHI_complete1, "simple", caption="Lakes with with >= 10 years of SECCHI data, and no year gaps for a minimum of 10 years")
+```
+
+\newpage
+# Common lakes
+
+Lastly, this table shows all the lakes with long-term data of any kind (TP, NO3, Secchi depth) as a way of seeing if/which lakes have multiple parameters. For instance, we talked about looking at changing NO3:TP ratios.
+
+For cleaner plotting, I am only showing the lakes where we have both NO3 & TP data or all three.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE,out.width = '100%', fig.height=10}
+
+SECCHI_complete1_long<-SECCHI_complete1 %>%
+  mutate(var="Secchi depth") %>%
+  rename(years_data=`Years of data (n)`,
+         first_year=`First year`,
+         last_year=`Last year`) %>%
+  relocate(var, .before="years_data") #rearranging columns 
+
+TP_complete1_long<-TP_complete1 %>%
+  mutate(var="Total P") %>%
+  rename(years_data=`Years of data (n)`,
+         first_year=`First year`,
+         last_year=`Last year`) %>%
+  relocate(var, .before="years_data") #rearranging columns 
+
+NO3_complete1_long<-NO3_complete1 %>%
+  mutate(var="Nitrate") %>%
+  rename(years_data=`Years of data (n)`,
+         first_year=`First year`,
+         last_year=`Last year`) %>%
+  relocate(var, .before="years_data") #rearranging columns 
+
+# colnames<-(intersect( colnames(SECCHI_complete1_long),  colnames(TP_complete1_long)))
+# MASTER_complete<-left_join(SECCHI_complete1_long,TP_complete1_long,by=colnames)
+# MASTER_complete<-left_join(MASTER_complete,NO3_complete1_long,by=colnames)
+
+MASTER_complete<-bind_rows(SECCHI_complete1_long,
+          TP_complete1_long,
+          NO3_complete1_long) %>%
+  arrange(lagoslakeid, var)
+
+# Visualize only the lakes with NO3 + TP, or NO3+TP+Secchi
+# I pulled the IDs out manually because the data isn't set up 
+# correctly for a proper filter and I don't have the time at the moment.
+MASTER_complete %>%
+  filter(lagoslakeid %in% c(359517, 360793, 376378, 449440, 457119, 459445, 463477)) %>%
+  ggplot()+
+  geom_point(aes(x=first_year, y=var, fill=var, group=NA),
+             shape=21,size=2.5)+
+  geom_point(aes(x=last_year, y=var, fill=var, group=NA),
+             shape=21,size=2.5)+
+  geom_segment(aes(x = first_year,
+                   y = var,
+                   xend = last_year,
+                   yend = var),
+               size = 0.5) +
+  facet_wrap(~`Lake name`, scales="free_y",
+             strip.position = "right",
+             nrow=10)+
+  scale_fill_manual(values=c("purple","green","blue"),
+                    name="Legend:")+
+  ggpubr::theme_pubr()+
+  coord_cartesian(xlim=c(1970,2020))+
+  geom_richtext(
+    size=3, vjust=1.0, hjust=-0.5,
+    aes(x = -Inf,  y = Inf, label = paste0("<B>Number of years = ", years_data)))+
+  theme(
+    # strip.background = element_blank(),
+    # strip.text.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "bottom"
+  )
+```
