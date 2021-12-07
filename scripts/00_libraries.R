@@ -19,6 +19,8 @@ if (!require('GGally')) install.packages('GGally'); library('GGally')
 if (!require('visdat')) install.packages('visdat'); library('visdat')
 if (!require('naniar')) install.packages('naniar'); library('naniar') #visualizing missing data and more
 if (!require('ggtext')) install.packages('ggtext'); library('ggtext') #for gg_richtext
+if (!require('ggrepel')) install.packages('ggrepel'); library('ggrepel') #for gg_richtext
+
 
 #For summaries
 if (!require('huxtable')) install.packages('huxtable'); library('huxtable')
@@ -34,6 +36,8 @@ if (!require('raster')) install.packages('raster'); library(raster)
 if (!require('tidytext')) install.packages('tidytext'); library(tidytext)
 if (!require('nhdplusTools')) install.packages('nhdplusTools'); library('nhdplusTools')
 if (!require('maps')) install.packages('maps'); library('maps')
+if (!require('rgeos')) install.packages('rgeos'); library('rgeos')
+
 
 if (!require('ggfortify')) install.packages('ggfortify'); library('ggfortify')
 if (!require('cluster')) install.packages('cluster'); library('cluster')
